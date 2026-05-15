@@ -55,6 +55,32 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_contact", ["tenantId", "contactId", "createdAt"]),
 
+  invoices: defineTable({
+    tenantId: v.string(),
+    estimateId: v.id("estimates"),
+    jobId: v.id("jobs"),
+    contactId: v.id("contacts"),
+    status: v.union(v.literal("open"), v.literal("partially_paid"), v.literal("paid"), v.literal("void")),
+    amountDue: v.number(),
+    amountPaid: v.number(),
+    stripeCheckoutSessionId: v.optional(v.string()),
+    stripePaymentIntentId: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_tenant_status", ["tenantId", "status"]).index("by_contact", ["tenantId", "contactId"]),
+
+  estimates: defineTable({
+    tenantId: v.string(),
+    jobId: v.id("jobs"),
+    contactId: v.id("contacts"),
+    status: v.union(v.literal("draft"), v.literal("sent"), v.literal("approved"), v.literal("declined")),
+    lineItems: v.array(v.object({ description: v.string(), quantity: v.number(), unitPrice: v.number() })),
+    subtotal: v.number(),
+    total: v.number(),
+    depositRequired: v.number(),
+    financingOffered: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_tenant_status", ["tenantId", "status"]).index("by_job", ["tenantId", "jobId"]),
+
   tasks: defineTable({
     tenantId: v.string(),
     ownerId: v.string(),

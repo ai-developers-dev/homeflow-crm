@@ -2,12 +2,17 @@ import {
   calculateOperatingSummary,
   completeTask,
   createContactFromLead,
+  createEstimateForJob,
+  createInvoiceFromEstimate,
   logInboundCall,
+  recordPaymentForInvoice,
   scheduleJobForContact,
   seedDashboardState,
   sendSmsTemplate,
+  approveEstimate,
   type CallInput,
   type DashboardState,
+  type EstimateInput,
   type JobInput,
   type LeadInput,
   type SmsInput,
@@ -53,4 +58,20 @@ export function addCrmCall(input: CallInput) {
 
 export function markCrmTaskComplete(taskId: string) {
   return completeTask(getCrmState(), taskId);
+}
+
+export function addCrmEstimate(input: EstimateInput) {
+  return createEstimateForJob(getCrmState(), input);
+}
+
+export function approveCrmEstimate(estimateId: string) {
+  return approveEstimate(getCrmState(), estimateId);
+}
+
+export function addCrmInvoice(estimateId: string, checkoutRef?: string) {
+  return createInvoiceFromEstimate(getCrmState(), estimateId, checkoutRef);
+}
+
+export function addCrmPayment(invoiceId: string, amount: number, providerRef?: string) {
+  return recordPaymentForInvoice(getCrmState(), invoiceId, amount, providerRef);
 }

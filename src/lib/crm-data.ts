@@ -59,6 +59,40 @@ export type Task = {
   completed: boolean;
 };
 
+export type EstimateLineItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+};
+
+export type Estimate = {
+  id: string;
+  jobId: string;
+  contactId: string;
+  customer: string;
+  status: "Draft" | "Sent" | "Approved" | "Declined";
+  lineItems: EstimateLineItem[];
+  subtotal: number;
+  total: number;
+  depositRequired: number;
+  financingOffered: boolean;
+  createdAt: string;
+};
+
+export type Invoice = {
+  id: string;
+  estimateId: string;
+  jobId: string;
+  contactId: string;
+  customer: string;
+  status: "Open" | "Partially Paid" | "Paid" | "Void";
+  amountDue: number;
+  amountPaid: number;
+  paymentProviderRef?: string;
+  checkoutUrl?: string;
+  createdAt: string;
+};
+
 export const competitors = [
   { name: "ServiceTitan", strength: "Enterprise operations, dispatch, call tracking, pricebook", gap: "Heavy setup and cost for smaller teams" },
   { name: "Housecall Pro", strength: "Scheduling, invoicing, payments, reminders", gap: "Less customizable sales pipeline and reporting depth" },

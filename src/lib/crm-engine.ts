@@ -5,6 +5,9 @@ import {
   tasks as seedTasks,
   technicians as seedTechnicians,
   type Contact,
+  type Estimate,
+  type EstimateLineItem,
+  type Invoice,
   type Job,
   type Message,
   type Task,
@@ -18,6 +21,8 @@ export type DashboardState = {
   messages: Message[];
   tasks: Task[];
   technicians: Technician[];
+  estimates: Estimate[];
+  invoices: Invoice[];
 };
 
 export type LeadInput = {
@@ -84,6 +89,8 @@ export function seedDashboardState(): DashboardState {
     messages: clone(seedMessages),
     tasks: clone(seedTasks),
     technicians: clone(seedTechnicians),
+    estimates: [],
+    invoices: [],
   };
 }
 
@@ -208,6 +215,148 @@ export function completeTask(state: DashboardState, taskId: string): Task {
   }
   task.completed = true;
   return task;
+}
+
+export type EstimateInput = {
+  jobId: string;
+  lineItems: EstimateLineItem[];
+  financingOffered?: boolean;
+  depositRequired?: number;
+};
+
+function findJob(state: DashboardState, jobId: string) {
+  const job = state.jobs.find((candidate) => candidate.id === jobId);
+  if (!job) {
+    throw new Error(`Job ${jobId} not found`);
+  }
+  return job;
+}
+
+function findEstimate(state: DashboardState, estimateId: string) {
+  const estimate = state.estimates.find((candidate) => candidate.id === estimateId);
+  if (!estimate) {
+    throw new Error(`Estimate ${estimateId} not found`);
+  }
+  return estimate;
+}
+
+function findInvoice(state: DashboardState, invoiceId: string) {
+  const invoice = state.invoices.find((candidate) => candidate.id === invoiceId);
+  if (!invoice) {
+    throw new Error(`Invoice ${invoiceId} not found`);
+  }
+  return invoice;
+}
+
+function calculateLineItemTotal(item: EstimateLineItem) {
+  if (!item.description.trim()) {
+    throw new Error("Every estimate line item needs a description");
+  }
+  if (item.quantity <= 0 || item.unitPrice < 0) {
+    throw new Error("Estimate line items need a positive quantity and non-negative unit price");
+  }
+  return item.quantity * item.unitPrice;
+}
+
+export function createEstimateForJob(state: DashboardState, input: EstimateInput): Estimate {
+  const job = findJob(state, input.jobId);
+  const contact = findContact(state, job.contactId);
+  if (input.lineItems.length === 0) {
+    throw new Error("At least one estimate line item is required");
+  }
+  const subtotal = input.lineItems.reduce((sum, item) => sum + calculateLineItemTotal(item), 0);
+  const estimate: Estimate = {
+    id: createId("est"),
+    jobId: job.id,
+    contactId: contact.id,
+    customer: contact.name,
+    status: "Sent",
+    lineItems: input.lineItems.map((item) => ({ ...item, description: item.description.trim() })),
+    subtotal,
+    total: subtotal,
+    depositRequired: input.depositRequired ?? 0,
+    financingOffered: input.financingOffered ?? false,
+    createdAt: new Date().toISOString(),
+  };
+
+  state.estimates.unshift(estimate);
+  contact.nextAction = "Review estimate and collect approval";
+  state.tasks.unshift({
+    id: createId("task"),
+    title: `Follow up estimate with ${contact.name}`,
+    owner: "Sales",
+    due: "Today",
+    impact: `Protect ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(estimate.total)} opportunity`,
+    completed: false,
+  });
+  return estimate;
+}
+
+export function approveEstimate(state: DashboardState, estimateId: string): Estimate {
+  const estimate = findEstimate(state, estimateId);
+  estimate.status = "Approved";
+  const contact = findContact(state, estimate.contactId);
+  contact.nextAction = "Collect deposit and schedule production";
+  state.tasks.unshift({
+    id: createId("task"),
+    title: `Collect deposit from ${estimate.customer}`,
+    owner: "CSR",
+    due: "Today",
+    impact: "Move approved estimate into production",
+    completed: false,
+  });
+  return estimate;
+}
+
+export function createInvoiceFromEstimate(state: DashboardState, estimateId: string, checkoutRef?: string): Invoice {
+  const estimate = findEstimate(state, estimateId);
+  if (estimate.status !== "Approved") {
+    throw new Error("Only approved estimates can be invoiced");
+  }
+  const job = findJob(state, estimate.jobId);
+  const invoice: Invoice = {
+    id: createId("inv"),
+    estimateId: estimate.id,
+    jobId: estimate.jobId,
+    contactId: estimate.contactId,
+    customer: estimate.customer,
+    status: "Open",
+    amountDue: estimate.total,
+    amountPaid: 0,
+    paymentProviderRef: checkoutRef,
+    checkoutUrl: checkoutRef ? `https://checkout.stripe.com/pay/${checkoutRef}` : undefined,
+    createdAt: new Date().toISOString(),
+  };
+
+  state.invoices.unshift(invoice);
+  job.status = "Invoiced";
+  return invoice;
+}
+
+export function recordPaymentForInvoice(state: DashboardState, invoiceId: string, amount: number, providerRef?: string): Invoice {
+  if (amount <= 0) {
+    throw new Error("Payment amount must be positive");
+  }
+  const invoice = findInvoice(state, invoiceId);
+  const job = findJob(state, invoice.jobId);
+  const contact = findContact(state, invoice.contactId);
+  invoice.amountPaid = Math.min(invoice.amountDue, invoice.amountPaid + amount);
+  invoice.paymentProviderRef = providerRef ?? invoice.paymentProviderRef;
+  invoice.status = invoice.amountPaid >= invoice.amountDue ? "Paid" : "Partially Paid";
+  if (invoice.status === "Paid") {
+    job.status = "Completed";
+    contact.lifetimeValue += invoice.amountDue;
+    contact.nextAction = "Ask for review and maintenance-plan enrollment";
+    state.tasks.unshift({
+      id: createId("task"),
+      title: `Request review and maintenance plan from ${contact.name}`,
+      owner: "CSR",
+      due: "Tomorrow",
+      impact: "Turn completed job into recurring revenue and social proof",
+      completed: false,
+    });
+  }
+  return invoice;
 }
 
 export function calculateOperatingSummary(state: DashboardState): OperatingSummary {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { smsTemplates, type Contact, type Job, type Message, type Task, type Technician, type Trade } from "@/lib/crm-data";
+import { smsTemplates, type Contact, type Estimate, type Invoice, type Job, type Message, type Task, type Technician, type Trade } from "@/lib/crm-data";
 import type { OperatingSummary } from "@/lib/crm-engine";
 
 type CrmSnapshot = {
@@ -11,6 +11,8 @@ type CrmSnapshot = {
   messages: Message[];
   tasks: Task[];
   technicians: Technician[];
+  estimates: Estimate[];
+  invoices: Invoice[];
   summary: OperatingSummary;
 };
 
@@ -114,6 +116,49 @@ export function CrmDashboardApp() {
     setStatus("Task marked complete");
   }
 
+  async function createEstimate() {
+    const job = snapshot?.jobs.find((candidate) => candidate.contactId === selectedContact?.id) ?? snapshot?.jobs[0];
+    if (!job) return;
+    const result = await jsonFetch<{ state: CrmSnapshot }>("/api/crm/estimates", {
+      method: "POST",
+      body: JSON.stringify({
+        jobId: job.id,
+        financingOffered: true,
+        depositRequired: 500,
+        lineItems: [
+          { description: `${job.trade} materials and equipment`, quantity: 1, unitPrice: Math.max(job.amount - 1200, 500) },
+          { description: "Licensed labor and cleanup", quantity: 6, unitPrice: 200 },
+        ],
+      }),
+    });
+    setSnapshot(result.state);
+    setStatus("Estimate sent with financing and deposit options");
+  }
+
+  async function approveEstimate() {
+    const estimate = snapshot?.estimates.find((candidate) => candidate.status === "Sent") ?? snapshot?.estimates[0];
+    if (!estimate) return;
+    const result = await jsonFetch<{ state: CrmSnapshot }>("/api/crm/estimates", { method: "PATCH", body: JSON.stringify({ estimateId: estimate.id }) });
+    setSnapshot(result.state);
+    setStatus("Estimate approved; deposit task created");
+  }
+
+  async function createInvoice() {
+    const estimate = snapshot?.estimates.find((candidate) => candidate.status === "Approved");
+    if (!estimate) return;
+    const result = await jsonFetch<{ state: CrmSnapshot }>("/api/crm/invoices", { method: "POST", body: JSON.stringify({ estimateId: estimate.id }) });
+    setSnapshot(result.state);
+    setStatus("Stripe-ready invoice created");
+  }
+
+  async function payInvoice() {
+    const invoice = snapshot?.invoices.find((candidate) => candidate.status !== "Paid");
+    if (!invoice) return;
+    const result = await jsonFetch<{ state: CrmSnapshot }>("/api/crm/invoices", { method: "PATCH", body: JSON.stringify({ invoiceId: invoice.id, amount: invoice.amountDue - invoice.amountPaid }) });
+    setSnapshot(result.state);
+    setStatus("Payment recorded; job closed and review/maintenance follow-up queued");
+  }
+
   async function resetDemo() {
     const result = await jsonFetch<{ state: CrmSnapshot }>("/api/crm", { method: "DELETE" });
     setSnapshot(result.state);
@@ -131,6 +176,7 @@ export function CrmDashboardApp() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-5 md:flex-row md:items-center md:justify-between">
           <div>
             <Link href="/" className="text-sm font-black text-emerald-700">← HomeFlow CRM marketing site</Link>
+            <Link href="/setup" className="ml-4 text-sm font-black text-blue-700">Launch setup</Link>
             <h1 className="mt-2 text-3xl font-black md:text-5xl">Home service operating dashboard</h1>
             <p className="mt-2 text-slate-600">Operational Next.js backend demo: contacts, jobs, calls, SMS, tasks, technician capacity, and owner reporting.</p>
           </div>
@@ -185,6 +231,25 @@ export function CrmDashboardApp() {
               <select value={smsTemplate} onChange={(event) => setSmsTemplate(event.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2">{smsTemplates.map((template) => <option key={template}>{template}</option>)}</select>
               <div className="mt-4 grid gap-3">
                 {snapshot.jobs.slice(0, 5).map((job) => <div key={job.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-wrap items-center gap-2"><strong>{job.title}</strong><Pill tone={job.priority === "Emergency" ? "red" : "amber"}>{job.priority}</Pill><Pill tone="green">{job.status}</Pill></div><p className="mt-1 text-sm text-slate-600">{job.customer} · {job.scheduled}, {job.window} · {job.technician} · {currency.format(job.amount)}</p></div>)}
+              </div>
+            </Card>
+
+            <Card title="Revenue engine: estimates → invoices → payments" action={<Pill tone="green">Stripe-ready</Pill>}>
+              <div className="grid gap-3 md:grid-cols-4">
+                <button onClick={createEstimate} className="rounded-xl bg-slate-950 px-4 py-3 font-black text-white">Send estimate</button>
+                <button onClick={approveEstimate} className="rounded-xl border border-slate-300 bg-white px-4 py-3 font-black">Approve estimate</button>
+                <button onClick={createInvoice} className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white">Create invoice</button>
+                <button onClick={payInvoice} className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white">Record payment</button>
+              </div>
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between"><strong>Open estimates</strong><Pill tone="amber">{snapshot.estimates.length}</Pill></div>
+                  <div className="mt-3 space-y-2">{snapshot.estimates.slice(0, 3).map((estimate) => <div key={estimate.id} className="text-sm text-slate-700"><span className="font-bold">{estimate.customer}</span> · {currency.format(estimate.total)} · {estimate.status}</div>)}</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between"><strong>Invoices</strong><Pill tone="blue">{snapshot.invoices.length}</Pill></div>
+                  <div className="mt-3 space-y-2">{snapshot.invoices.slice(0, 3).map((invoice) => <div key={invoice.id} className="text-sm text-slate-700"><span className="font-bold">{invoice.customer}</span> · {currency.format(invoice.amountDue)} · {invoice.status}</div>)}</div>
+                </div>
               </div>
             </Card>
 

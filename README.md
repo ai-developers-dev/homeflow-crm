@@ -1,16 +1,17 @@
 # HomeFlow CRM
 
-HomeFlow CRM is a full-stack-shaped SaaS prototype for home service businesses: HVAC, plumbing, roofing, electrical, landscaping, restoration, appliance repair, and general contracting.
+HomeFlow CRM is a home-services SaaS CRM for HVAC, plumbing, roofing, electrical, landscaping, restoration, appliance repair, and general contractors.
 
-It includes:
+It now includes a working demo app plus production launch scaffolding:
 
-- A Next.js marketing landing page for conversion.
-- An operational dashboard prototype with contact management, scheduling, calls, SMS, tasks, and revenue metrics.
-- A dedicated `/dashboard` CRM app backed by Next.js API routes for contacts, jobs, calls/SMS, tasks, technician capacity, and owner reporting.
-- A typed CRM domain model with deterministic sample data.
-- A health API route.
-- Convex schema draft for the production backend.
-- Clerk/Convex/Twilio/Stripe environment placeholders.
+- Next.js marketing landing page at `/`.
+- Operational CRM dashboard at `/dashboard`.
+- Launch readiness page at `/setup`.
+- API backend routes for contacts, jobs, calls, SMS, tasks, estimates, invoices, payments, health, and readiness.
+- Tested CRM workflow engine covering lead capture, dispatch, communications, revenue workflow, and production readiness.
+- Convex schema for tenant-isolated production data.
+- Clerk/Convex/Twilio/Stripe environment placeholders and readiness checks.
+- Security headers, standalone Docker build, and GitHub Actions verification workflow.
 
 ## Run locally
 
@@ -20,56 +21,87 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 for the marketing site.
-Open http://localhost:3000/dashboard for the full CRM application.
+Open:
 
-## Operational API
+- http://localhost:3000 for the marketing site
+- http://localhost:3000/dashboard for the CRM app
+- http://localhost:3000/setup for production key/readiness checklist
 
-The demo backend uses Next.js API routes with an in-memory CRM store, so it works immediately without secrets:
-
-- `GET /api/crm` returns contacts, jobs, messages, tasks, technicians, and owner summary metrics.
-- `POST /api/crm/contacts` captures a lead and creates a qualification task.
-- `POST /api/crm/jobs` schedules a job and creates a dispatch task.
-- `POST /api/crm/messages` logs inbound calls or queues outbound SMS.
-- `PATCH /api/crm/tasks` completes tasks.
-- `DELETE /api/crm` resets demo data.
-
-## Verify
+## Verify before shipping
 
 ```bash
 npm run lint
 npm run test
 npm run build
+npm run audit:high
 ```
 
-## Architecture
+Or run everything:
 
-Current mode is demo-first and fully operational without credentials. The dashboard actions update local React state so reviewers can test product workflows immediately.
+```bash
+npm run verify
+```
 
-Production path:
+## Operational API
 
-1. Clerk protects `/dashboard` routes and provides `userId` and `orgId`.
-2. Convex stores tenant-isolated CRM data keyed by Clerk organization ID.
-3. Twilio powers calls, SMS, recordings, missed-call alerts, reminders, and call summaries.
-4. Stripe handles payments, deposits, maintenance plans, and invoices.
-5. Technician mobile PWA handles route views, job notes, photos, checklist completion, and customer signatures.
+The current backend runs without secrets using an in-memory demo store:
+
+- `GET /api/health` returns service status and enabled modules.
+- `GET /api/readiness` returns missing production keys and launch checklist.
+- `GET /api/crm` returns contacts, jobs, messages, tasks, technicians, estimates, invoices, and owner metrics.
+- `DELETE /api/crm` resets demo data.
+- `POST /api/crm/contacts` captures a lead and creates a qualification task.
+- `POST /api/crm/jobs` schedules a job and creates a dispatch task.
+- `POST /api/crm/messages` logs inbound calls or queues outbound SMS.
+- `PATCH /api/crm/tasks` completes tasks.
+- `POST /api/crm/estimates` creates and sends an estimate.
+- `PATCH /api/crm/estimates` approves an estimate.
+- `POST /api/crm/invoices` creates a Stripe-ready invoice from an approved estimate.
+- `PATCH /api/crm/invoices` records payment, closes the job, updates customer LTV, and creates review/maintenance follow-up.
+
+## Production keys needed
+
+The app runs in demo mode until these are configured:
+
+```bash
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+CLERK_WEBHOOK_SECRET=
+NEXT_PUBLIC_CONVEX_URL=
+CONVEX_DEPLOYMENT=
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_PHONE_NUMBER=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+NEXT_PUBLIC_APP_URL=
+```
+
+## Production launch path
+
+1. Clerk: create application, enable organizations, add admin/dispatcher/technician roles, configure redirect URLs.
+2. Convex: create deployment, run `npx convex dev`, deploy schema, seed the first tenant, and replace demo API handlers with Convex queries/mutations.
+3. Twilio: buy/verify number, configure inbound voice/SMS webhooks, complete A2P 10DLC for compliant business SMS.
+4. Stripe: create invoice/deposit/maintenance-plan products, configure webhooks, and connect invoice payments to `/api/crm/invoices` replacement handlers.
+5. Deploy on Vercel or Docker, set all env vars, run `npm run verify`, smoke test `/api/health`, `/api/readiness`, `/dashboard`, and `/setup`.
+
+## Docker
+
+```bash
+docker build -t homeflow-crm .
+docker run --rm -p 3000:3000 homeflow-crm
+```
 
 ## Competitive positioning
 
-The product targets contractors who need the operating power of ServiceTitan/Housecall Pro/Jobber but want faster setup, less overhead, and a unified office + field workflow. The prototype emphasizes:
+HomeFlow targets contractors who need the operating power of ServiceTitan/Housecall Pro/Jobber but want faster setup, less overhead, and a unified office + field workflow.
+
+Differentiators in this build:
 
 - Speed-to-lead after calls and form fills.
-- Unified contact timeline across calls, SMS, estimates, and jobs.
+- Unified contact timeline across calls, SMS, estimates, invoices, jobs, and payments.
 - Dispatch board with technician capacity and emergency priority.
-- Maintenance-plan and callback workflows that produce recurring revenue.
-- Clean reporting for owners: response time, conversion, booked revenue, and open estimates.
-
-## Production hardening checklist
-
-- Replace demo state with Convex queries/mutations.
-- Add Clerk middleware and org role checks.
-- Add Twilio webhooks for inbound calls/SMS and consent-compliant outbound messaging.
-- Add Stripe invoices, subscriptions, and deposits.
-- Add background jobs for reminders, review requests, and stale estimate follow-ups.
-- Add audit logs, RBAC, tenant isolation tests, and SOC2-ready logging.
-- Add E2E tests for lead capture, schedule job, send SMS, close estimate, and invoice payment.
+- Estimate → invoice → payment workflow with maintenance-plan/review follow-up.
+- Owner reporting for response time, booked/open revenue, utilization, and overdue work.
+- Clear production-readiness gate for real credentials instead of pretending demo mode is production.
